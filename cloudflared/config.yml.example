@@ -1,0 +1,16 @@
+# Copy this to cloudflared/config.yml (gitignored) after creating your named
+# tunnel — see the "Cloudflare tunnel setup" section in README.md for the
+# full one-time walkthrough. The credentials JSON that `cloudflared tunnel
+# create` generates should also live in this cloudflared/ directory, since
+# the whole directory is mounted read-only into the cloudflared container at
+# /etc/cloudflared.
+
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # Replace with the hostname you ran `cloudflared tunnel route dns` for.
+  # Must match WEBHOOK_URL's host in your .env (path included there, not here).
+  - hostname: bot.yourdomain.com
+    service: http://bot:8080
+  - service: http_status:404

@@ -1,0 +1,6 @@
+.env
+cloudflared/config.yml
+cloudflared/*.json
+__pycache__/
+*.pyc
+.venv/

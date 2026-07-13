@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  import-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Mirrors the Dockerfile's install order: CPU-only torch wheel first
+      # (much smaller than the default CUDA build), then the rest.
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          pip install --no-cache-dir -r requirements.txt
+
+      # Model singletons in app/models.py are lazy (loaded on first call, not
+      # at import time), so this never touches the network or needs the HF
+      # models pre-downloaded — it just proves every module parses and every
+      # import resolves. Dummy env vars satisfy config.py's required
+      # os.environ[...] reads and its chunk-size/overlap validation.
+      - name: Check all modules parse and import cleanly
+        env:
+          TELEGRAM_BOT_TOKEN: dummy
+          ADMIN_USER_IDS: "1"
+          WEBHOOK_SECRET_TOKEN: dummy
+          DATABASE_URL: postgresql://user:pass@localhost/db
+          REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+        run: |
+          python -m py_compile app/*.py
+          python -c "import app.bot, app.worker, app.ingestion; print('All modules imported successfully')"

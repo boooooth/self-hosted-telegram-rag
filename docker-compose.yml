@@ -1,0 +1,105 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      # Host port 5433, not 5432 — avoids clashing with a native Postgres
+      # install some machines already have running on the standard port
+      # (e.g. from the official PostgreSQL/pgAdmin installer). Internal
+      # container-to-container traffic (bot/worker -> postgres) is unaffected;
+      # this only changes how you connect from tools on your host machine,
+      # e.g. pgAdmin: host=localhost, port=5433.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333" # convenience for the local Qdrant dashboard; remove if you don't need host access
+
+  # Only needed when LLM_MODEL points at ollama/* (the default — runs fully
+  # local, no API key required). If you set LLM_MODEL to a hosted provider
+  # instead, this service is unused and can be removed. Pull a model into it
+  # once after first start: `docker compose exec ollama ollama pull smollm2:135m`
+  # (or whatever model LLM_MODEL names).
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+
+  bot:
+    build: .
+    command: python -m app.bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - uploads:${UPLOAD_DIR}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+      cloudflared:
+        condition: service_started
+
+  worker:
+    build: .
+    command: python -m app.worker
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - uploads:${UPLOAD_DIR}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  # Always-on in local dev — gives the bot a public HTTPS URL for Telegram's
+  # webhook, with zero setup (no Cloudflare account/domain needed). Runs an
+  # ephemeral "quick tunnel" whose *.trycloudflare.com hostname changes every
+  # restart; the bot reads the current one from cloudflared's local metrics
+  # endpoint at startup (see app/bot.py resolve_webhook_url()) instead of a
+  # fixed WEBHOOK_URL. Remove this service (and set WEBHOOK_URL directly) once
+  # deployed somewhere with its own stable public URL — Railway/Render/a VPS,
+  # or a Cloudflare named tunnel if you set one up later (see README).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --url http://bot:${PORT} --metrics 0.0.0.0:20241 --no-autoupdate
+
+volumes:
+  pgdata:
+  qdrant_data:
+  uploads:
+  ollama_data:
