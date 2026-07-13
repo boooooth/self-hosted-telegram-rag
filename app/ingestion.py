@@ -8,6 +8,7 @@ from pypdf import PdfReader
 from app import db, qdrant_store, telegram_api
 from app.config import settings
 from app.models import get_embedder
+from app.telegram_format import wrap_as_code_block
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,9 @@ def chunk_text(text: str, size: int, overlap: int) -> list[str]:
 
 def _mark_failed(doc: dict, reason: str) -> None:
     db.set_document_status(doc["id"], "failed")
-    telegram_api.send_message(doc["uploaded_by"], f"Couldn't index \"{doc['filename']}\": {reason}")
+    telegram_api.send_message(
+        doc["uploaded_by"], wrap_as_code_block(f"Couldn't index \"{doc['filename']}\": {reason}")
+    )
 
 
 def process_document(document_id: int) -> None:
@@ -137,7 +140,7 @@ def process_document(document_id: int) -> None:
     try:
         telegram_api.send_message(
             doc["uploaded_by"],
-            f"\"{doc['filename']}\" indexed — {len(chunks)} chunks, ready to query.",
+            wrap_as_code_block(f"\"{doc['filename']}\" indexed — {len(chunks)} chunks, ready to query."),
         )
     except Exception:
         # Indexing above already succeeded and is durably committed — a failure

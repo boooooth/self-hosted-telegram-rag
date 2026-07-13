@@ -8,6 +8,7 @@ import time
 
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandObject
 from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, ErrorEvent, Message
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -19,6 +20,7 @@ from app.config import settings
 from app.llm import generate_answer
 from app.queue import get_queue
 from app.retrieval import hybrid_search, rerank
+from app.telegram_format import wrap_as_code_block
 
 DOCUMENTS_PAGE_SIZE = 20
 
@@ -36,6 +38,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+async def reply_block(message: Message, text: str) -> None:
+    """Every user-facing reply goes through this so the whole message is
+    uniformly wrapped in a Telegram <pre> block, instead of calling
+    message.reply(...) directly at each call site (easy to forget the
+    wrap at one of them otherwise)."""
+    await message.reply(wrap_as_code_block(text))
 
 
 async def set_admin_command_menu(bot: Bot, chat_id: int) -> None:
@@ -69,9 +79,9 @@ async def handle_start(message: Message, bot: Bot) -> None:
             "Admin commands:",
             "• Send a PDF/DOCX/TXT/MD file to add it to the knowledge base.",
             "/documents — list indexed documents and their status",
-            "/delete <id> — remove a document from the knowledge base",
+            "/delete ID — remove a document from the knowledge base",
         ]
-    await message.reply("\n".join(lines))
+    await reply_block(message, "\n".join(lines))
 
 
 @router.message(Command("documents"))
@@ -81,25 +91,26 @@ async def handle_documents(message: Message, command: CommandObject) -> None:
     db.upsert_user(user.id, user.username, is_admin)
 
     if not is_admin:
-        await message.reply("Sorry, only admins can view the document list.")
+        await reply_block(message, "Sorry, only admins can view the document list.")
         return
 
     page_arg = (command.args or "1").strip()
     if not page_arg.isdigit() or int(page_arg) < 1:
-        await message.reply("Usage: /documents [page number]")
+        await reply_block(message, "Usage: /documents [page number]")
         return
     page = int(page_arg)
 
     total = db.count_documents()
     if total == 0:
-        await message.reply("No documents have been uploaded yet.")
+        await reply_block(message, "No documents have been uploaded yet.")
         return
 
     total_pages = -(-total // DOCUMENTS_PAGE_SIZE)  # ceiling division
     if page > total_pages:
-        await message.reply(
+        await reply_block(
+            message,
             f"Page {page} doesn't exist — there are only {total_pages} "
-            f"page{'s' if total_pages != 1 else ''} ({total} documents)."
+            f"page{'s' if total_pages != 1 else ''} ({total} documents).",
         )
         return
 
@@ -117,10 +128,10 @@ async def handle_documents(message: Message, command: CommandObject) -> None:
     hints = []
     if page < total_pages:
         hints.append(f"/documents {page + 1} for more")
-    hints.append("/delete <id> to remove one.")
+    hints.append("/delete ID to remove one.")
     lines.append(" · ".join(hints))
 
-    await message.reply("\n".join(lines))
+    await reply_block(message, "\n".join(lines))
 
 
 @router.message(Command("delete"))
@@ -130,18 +141,18 @@ async def handle_delete(message: Message, command: CommandObject) -> None:
     db.upsert_user(user.id, user.username, is_admin)
 
     if not is_admin:
-        await message.reply("Sorry, only admins can delete documents.")
+        await reply_block(message, "Sorry, only admins can delete documents.")
         return
 
     args = (command.args or "").strip()
     if not args.isdigit():
-        await message.reply("Usage: /delete <document id> — see /documents for ids.")
+        await reply_block(message, "Usage: /delete DOCUMENT_ID — see /documents for ids.")
         return
     document_id = int(args)
 
     doc = db.get_document(document_id)
     if doc is None:
-        await message.reply(f"No document with id {document_id}.")
+        await reply_block(message, f"No document with id {document_id}.")
         return
 
     try:
@@ -149,7 +160,7 @@ async def handle_delete(message: Message, command: CommandObject) -> None:
         db.delete_document(document_id)
     except Exception:
         logger.exception("Failed to delete document_id=%s", document_id)
-        await message.reply("Sorry, something went wrong deleting that document — please try again.")
+        await reply_block(message, "Sorry, something went wrong deleting that document — please try again.")
         return
 
     if os.path.exists(doc["storage_path"]):
@@ -158,7 +169,7 @@ async def handle_delete(message: Message, command: CommandObject) -> None:
         except OSError:
             logger.exception("Failed to remove stored file for document_id=%s", document_id)
 
-    await message.reply(f'Deleted "{doc["filename"]}" (#{document_id}).')
+    await reply_block(message, f'Deleted "{doc["filename"]}" (#{document_id}).')
 
 
 @router.message(F.document)
@@ -168,7 +179,7 @@ async def handle_document(message: Message, bot: Bot) -> None:
     db.upsert_user(user.id, user.username, is_admin)
 
     if not is_admin:
-        await message.reply("Sorry, only admins can upload documents to this knowledge base.")
+        await reply_block(message, "Sorry, only admins can upload documents to this knowledge base.")
         return
 
     document = message.document
@@ -180,9 +191,10 @@ async def handle_document(message: Message, bot: Bot) -> None:
         await bot.download_file(file.file_path, destination=storage_path)
     except Exception:
         logger.exception("Failed to download document %s from Telegram", document.file_id)
-        await message.reply(
+        await reply_block(
+            message,
             "Sorry, I couldn't download that file (it may be too large or Telegram had a "
-            "hiccup) — please try again."
+            "hiccup) — please try again.",
         )
         return
 
@@ -194,7 +206,7 @@ async def handle_document(message: Message, bot: Bot) -> None:
         on_failure=Callback("app.ingestion.notify_final_failure"),
     )
 
-    await message.reply(f'"{filename}" received — indexing now...')
+    await reply_block(message, f'"{filename}" received — indexing now...')
 
 
 @router.message(F.text)
@@ -204,7 +216,7 @@ async def handle_text(message: Message) -> None:
     db.upsert_user(user.id, user.username, is_admin)
 
     if not cooldown.allow(user.id):
-        await message.reply("You're sending questions too quickly — please wait a few seconds and try again.")
+        await reply_block(message, "You're sending questions too quickly — please wait a few seconds and try again.")
         return
 
     question = message.text
@@ -220,12 +232,12 @@ async def handle_text(message: Message) -> None:
             answer = await loop.run_in_executor(None, generate_answer, question, ranked)
     except Exception:
         logger.exception("Failed to answer question from user %s", user.id)
-        await message.reply(
-            "Sorry, something went wrong while answering your question — please try again in a moment."
+        await reply_block(
+            message, "Sorry, something went wrong while answering your question — please try again in a moment."
         )
         return
 
-    await message.reply(answer)
+    await reply_block(message, answer)
 
     db.log_query(
         user_id=user.id,
@@ -248,7 +260,9 @@ async def handle_errors(event: ErrorEvent, bot: Bot) -> None:
     chat = getattr(event.update.message, "chat", None)
     if chat is not None:
         try:
-            await bot.send_message(chat.id, "Sorry, something went wrong on my end — please try again.")
+            await bot.send_message(
+                chat.id, wrap_as_code_block("Sorry, something went wrong on my end — please try again.")
+            )
         except Exception:
             logger.exception("Failed to notify user %s about an unhandled error", chat.id)
 
@@ -296,7 +310,12 @@ async def on_startup(bot: Bot) -> None:
 
 
 def main() -> None:
-    bot = Bot(token=settings.telegram_bot_token)
+    # Applies to every message this bot sends unless a call explicitly
+    # overrides it. See app/telegram_format.py for why HTML (not
+    # MarkdownV2): a much smaller required-escape surface, so a stray
+    # special character in LLM output or an uploaded filename can't take
+    # down an entire message the way it would under MarkdownV2.
+    bot = Bot(token=settings.telegram_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
     dp.include_router(router)
     dp.startup.register(on_startup)
