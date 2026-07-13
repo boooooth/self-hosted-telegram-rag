@@ -1,7 +1,8 @@
-# Telegram RAG Bot
+# Self-Hosted Telegram RAG
 
-A Telegram bot backed by a shared, open-read knowledge base. Anyone can ask
-questions; only admins (configured via `ADMIN_USER_IDS`) can upload documents.
+A self-hosted Telegram bot backed by a shared, open-read knowledge base. Anyone
+can ask questions; only admins (configured via `ADMIN_USER_IDS`) can upload
+documents.
 
 ## Architecture
 

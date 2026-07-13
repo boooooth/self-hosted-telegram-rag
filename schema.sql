@@ -1,4 +1,4 @@
--- Telegram RAG bot schema.
+-- Self-hosted Telegram RAG bot schema.
 -- Applied automatically on first Postgres container start via
 -- docker-entrypoint-initdb.d (see docker-compose.yml).
 
