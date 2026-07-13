@@ -45,5 +45,7 @@ jobs:
       # tests/conftest.py sets its own dummy env vars, so no env: block
       # needed here (unlike the step above, which runs before any test
       # module -- and therefore conftest.py -- is loaded).
+      # `python -m pytest` (not bare `pytest`) so the repo root -- and
+      # therefore the `app` package -- is on sys.path.
       - name: Run tests
-        run: pytest tests/ -v
+        run: python -m pytest tests/ -v
