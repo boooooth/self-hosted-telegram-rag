@@ -53,12 +53,26 @@ def extract_text(path: str) -> str | None:
 
 
 def chunk_text(text: str, size: int, overlap: int) -> list[str]:
+    """Sliding window over raw characters, sized/stepped by `size`/`overlap`.
+    Not a token count -- for typical English text ~size characters is well
+    under the embedding/cross-encoder models' token limits at the current
+    defaults, but a much larger CHUNK_SIZE could still exceed them (silently
+    truncated by sentence-transformers, not an error here)."""
     chunks = []
     start = 0
     text_len = len(text)
     step = size - overlap
     while start < text_len:
-        chunk = text[start : start + size].strip()
+        end = min(start + size, text_len)
+        # Avoid splitting a word in half: if this isn't the last chunk and
+        # the cut point isn't already on whitespace, back off to the nearest
+        # preceding space in this window. Falls back to the raw cut if no
+        # space is found (e.g. one long unbroken token).
+        if end < text_len and not text[end].isspace():
+            last_space = text.rfind(" ", start, end)
+            if last_space > start:
+                end = last_space
+        chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
         start += step
