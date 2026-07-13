@@ -1,5 +1,5 @@
 """Per-user query cooldown, backed by Redis. Cost/abuse guard since reads
-are open to any Telegram user and every query calls the Claude API."""
+are open to any Telegram user and every query calls the configured LLM."""
 from app.config import settings
 from app.redis_client import get_redis_client
 

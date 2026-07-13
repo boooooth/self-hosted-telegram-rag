@@ -1,6 +1,6 @@
 # Copy this to cloudflared/config.yml (gitignored) after creating your named
-# tunnel — see the "Cloudflare tunnel setup" section in README.md for the
-# full one-time walkthrough. The credentials JSON that `cloudflared tunnel
+# tunnel — see the "Upgrading to a stable named tunnel later" section in
+# README.md for the full one-time walkthrough. The credentials JSON that `cloudflared tunnel
 # create` generates should also live in this cloudflared/ directory, since
 # the whole directory is mounted read-only into the cloudflared container at
 # /etc/cloudflared.
