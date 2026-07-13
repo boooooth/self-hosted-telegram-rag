@@ -61,13 +61,13 @@ def chunk_text(text: str, size: int, overlap: int) -> list[str]:
     chunks = []
     start = 0
     text_len = len(text)
-    step = size - overlap
     while start < text_len:
         end = min(start + size, text_len)
-        # Avoid splitting a word in half: if this isn't the last chunk and
-        # the cut point isn't already on whitespace, back off to the nearest
-        # preceding space in this window. Falls back to the raw cut if no
-        # space is found (e.g. one long unbroken token).
+        # Avoid splitting a word in half at the end of this chunk: if this
+        # isn't the last chunk and the cut point isn't already on
+        # whitespace, back off to the nearest preceding space in this
+        # window. Falls back to the raw cut if no space is found (e.g. one
+        # long unbroken token).
         if end < text_len and not text[end].isspace():
             last_space = text.rfind(" ", start, end)
             if last_space > start:
@@ -75,7 +75,24 @@ def chunk_text(text: str, size: int, overlap: int) -> list[str]:
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
-        start += step
+        if end >= text_len:
+            break
+
+        # The next chunk starts `overlap` characters back from THIS chunk's
+        # actual (possibly word-snapped) end -- not a fixed offset from
+        # `start` -- so it inherits the same word-safety rather than
+        # landing mid-word independently. `max(..., start + 1)` guarantees
+        # forward progress even if word-snapping shrank this chunk well
+        # below `size`. The forward word-boundary search is bounded by
+        # `end` (already-chunked territory), so it can only move the next
+        # start within text already covered by this chunk -- never skip
+        # over unchunked content.
+        next_start = max(end - overlap, start + 1)
+        if not text[next_start].isspace():
+            next_space = text.find(" ", next_start, end)
+            if next_space != -1:
+                next_start = next_space + 1
+        start = next_start
     return chunks
 
 
