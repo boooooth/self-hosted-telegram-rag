@@ -18,10 +18,12 @@ jobs:
 
       # Mirrors the Dockerfile's install order: CPU-only torch wheel first
       # (much smaller than the default CUDA build), then the rest.
+      # requirements-dev.txt pulls in requirements.txt plus pytest -- the
+      # production image (Dockerfile) only ever installs requirements.txt.
       - name: Install dependencies
         run: |
           pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
-          pip install --no-cache-dir -r requirements.txt
+          pip install --no-cache-dir -r requirements-dev.txt
 
       # Model singletons in app/models.py are lazy (loaded on first call, not
       # at import time), so this never touches the network or needs the HF
@@ -39,3 +41,11 @@ jobs:
         run: |
           python -m py_compile app/*.py
           python -c "import app.bot, app.worker, app.ingestion; print('All modules imported successfully')"
+
+      # tests/conftest.py sets its own dummy env vars, so no env: block
+      # needed here (unlike the step above, which runs before any test
+      # module -- and therefore conftest.py -- is loaded).
+      # `python -m pytest` (not bare `pytest`) so the repo root -- and
+      # therefore the `app` package -- is on sys.path.
+      - name: Run tests
+        run: python -m pytest tests/ -v

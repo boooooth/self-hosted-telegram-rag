@@ -1,0 +1,4 @@
+# Test-only dependencies. Not installed in the production image (see
+# Dockerfile) -- only used by CI and local test runs.
+-r requirements.txt
+pytest==8.3.4
