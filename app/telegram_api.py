@@ -12,6 +12,11 @@ _API_BASE = "https://api.telegram.org"
 
 
 def send_message(chat_id: int, text: str) -> None:
+    """`text` must already be safe Telegram HTML -- callers are responsible
+    for escaping any dynamic content (see app.telegram_format.escape_html),
+    same convention as app.bot's aiogram-side handlers."""
     url = f"{_API_BASE}/bot{settings.telegram_bot_token}/sendMessage"
-    response = httpx.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+    response = httpx.post(
+        url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}, timeout=10
+    )
     response.raise_for_status()
