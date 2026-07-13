@@ -1,6 +1,6 @@
 """aiogram bot, webhook mode only. Runs as its own container; the worker
 handles actual ingestion, this process just accepts uploads/queries and
-answers text queries synchronously via hybrid retrieval + Claude."""
+answers text queries synchronously via hybrid retrieval + LLM generation."""
 import asyncio
 import logging
 import os

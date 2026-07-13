@@ -56,6 +56,11 @@ only the `command:` differs per service in `docker-compose.yml`.
    for `ADMIN_USER_IDS`. No LLM API key is required by default (`LLM_MODEL=ollama/smollm2:135m`) —
    see the LLM note above if you'd rather use Claude or GPT, or a larger local model.
 
+   Also replace the placeholder `WEBHOOK_SECRET_TOKEN` and `POSTGRES_PASSWORD`
+   values in `.env` (both ship as literal `change-me...` strings) — harmless
+   for local dev, but worth generating real values before deploying anywhere
+   reachable from the internet.
+
 2. Leave `WEBHOOK_URL` empty in `.env` — see the tunnel note below.
 
 3. Bring everything up:
@@ -67,6 +72,12 @@ only the `command:` differs per service in `docker-compose.yml`.
    it; ask questions as anyone.
 
 ## Commands
+
+Every reply — including this list — renders as a single monospace code
+block in Telegram (no selective markdown parsing, so nothing in an answer
+can break formatting). Commands also appear in Telegram's native "/" menu:
+everyone sees `/start`; admins additionally see `/documents` and `/delete`
+there, scoped so non-admins never see commands they can't use.
 
 - `/start` — onboarding message; shows admin commands too if you're one.
 - `/documents [page]` — admin only. Lists uploaded documents (newest first,
