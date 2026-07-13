@@ -63,6 +63,11 @@ def set_document_status(document_id: int, status: str) -> None:
 
 
 def insert_chunks(document_id: int, chunk_texts: list[str]) -> None:
+    """Upserts the current chunk set, then deletes any leftover rows from a
+    previous ingestion attempt that produced more chunks than this one (e.g.
+    CHUNK_SIZE changed between runs) -- otherwise those higher-indexed rows
+    stay orphaned and searchable forever. Both statements run in the same
+    connection/transaction, so this is all-or-nothing."""
     with _cursor() as cur:
         cur.executemany(
             """
@@ -71,6 +76,10 @@ def insert_chunks(document_id: int, chunk_texts: list[str]) -> None:
             ON CONFLICT (document_id, chunk_index) DO UPDATE SET content = EXCLUDED.content
             """,
             [(document_id, idx, text) for idx, text in enumerate(chunk_texts)],
+        )
+        cur.execute(
+            "DELETE FROM chunks WHERE document_id = %s AND chunk_index >= %s",
+            (document_id, len(chunk_texts)),
         )
 
 
