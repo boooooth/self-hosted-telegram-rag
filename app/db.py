@@ -126,6 +126,41 @@ def get_chunks_by_ids(chunk_ids: list[str]) -> dict[str, dict]:
         return {row["chunk_id"]: row for row in cur.fetchall()}
 
 
+def list_documents(limit: int = 20, offset: int = 0) -> list[dict]:
+    """Most recent documents first, with a per-document chunk count -- used
+    by the /documents admin command. Paginated via limit/offset rather than
+    returning everything, since a Telegram message is capped at 4096 chars."""
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT d.id, d.filename, d.status, d.created_at, COUNT(c.id) AS chunk_count
+            FROM documents d
+            LEFT JOIN chunks c ON c.document_id = d.id
+            GROUP BY d.id
+            ORDER BY d.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
+        return cur.fetchall()
+
+
+def count_documents() -> int:
+    """Total document count, used alongside list_documents to compute page
+    counts for the /documents admin command."""
+    with _cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS count FROM documents")
+        return cur.fetchone()["count"]
+
+
+def delete_document(document_id: int) -> None:
+    """Deletes the document row; chunks cascade via the FK's ON DELETE
+    CASCADE (see schema.sql). Does not touch Qdrant -- callers must also
+    call qdrant_store.delete_document for the same id."""
+    with _cursor() as cur:
+        cur.execute("DELETE FROM documents WHERE id = %s", (document_id,))
+
+
 def log_query(user_id: int, question: str, retrieved_chunk_ids: list[str], answer: str) -> None:
     with _cursor() as cur:
         cur.execute(

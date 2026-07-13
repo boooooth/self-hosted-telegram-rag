@@ -8,22 +8,132 @@ import time
 
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import Command, CommandObject
 from aiogram.types import ErrorEvent, Message
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from rq import Callback, Retry
 
-from app import cooldown, db
+from app import cooldown, db, qdrant_store
 from app.config import settings
 from app.llm import generate_answer
-from app.qdrant_store import ensure_collection
 from app.queue import get_queue
 from app.retrieval import hybrid_search, rerank
+
+DOCUMENTS_PAGE_SIZE = 20
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+@router.message(Command("start"))
+async def handle_start(message: Message) -> None:
+    user = message.from_user
+    is_admin = user.id in settings.admin_user_ids
+    db.upsert_user(user.id, user.username, is_admin)
+
+    lines = [
+        "👋 I'm a question-answering bot over a shared document knowledge base.",
+        "Just send me a question and I'll search the indexed documents and answer with citations.",
+    ]
+    if is_admin:
+        lines += [
+            "",
+            "Admin commands:",
+            "• Send a PDF/DOCX/TXT/MD file to add it to the knowledge base.",
+            "/documents — list indexed documents and their status",
+            "/delete <id> — remove a document from the knowledge base",
+        ]
+    await message.reply("\n".join(lines))
+
+
+@router.message(Command("documents"))
+async def handle_documents(message: Message, command: CommandObject) -> None:
+    user = message.from_user
+    is_admin = user.id in settings.admin_user_ids
+    db.upsert_user(user.id, user.username, is_admin)
+
+    if not is_admin:
+        await message.reply("Sorry, only admins can view the document list.")
+        return
+
+    page_arg = (command.args or "1").strip()
+    if not page_arg.isdigit() or int(page_arg) < 1:
+        await message.reply("Usage: /documents [page number]")
+        return
+    page = int(page_arg)
+
+    total = db.count_documents()
+    if total == 0:
+        await message.reply("No documents have been uploaded yet.")
+        return
+
+    total_pages = -(-total // DOCUMENTS_PAGE_SIZE)  # ceiling division
+    if page > total_pages:
+        await message.reply(
+            f"Page {page} doesn't exist — there are only {total_pages} "
+            f"page{'s' if total_pages != 1 else ''} ({total} documents)."
+        )
+        return
+
+    offset = (page - 1) * DOCUMENTS_PAGE_SIZE
+    documents = db.list_documents(limit=DOCUMENTS_PAGE_SIZE, offset=offset)
+
+    status_emoji = {"ready": "✅", "pending": "⏳", "failed": "❌"}
+    lines = [f"📄 Page {page} of {total_pages} ({total} documents):"]
+    for doc in documents:
+        emoji = status_emoji.get(doc["status"], "")
+        lines.append(
+            f"#{doc['id']} {doc['filename']} — {emoji} {doc['status']} ({doc['chunk_count']} chunks)"
+        )
+    lines.append("")
+    hints = []
+    if page < total_pages:
+        hints.append(f"/documents {page + 1} for more")
+    hints.append("/delete <id> to remove one.")
+    lines.append(" · ".join(hints))
+
+    await message.reply("\n".join(lines))
+
+
+@router.message(Command("delete"))
+async def handle_delete(message: Message, command: CommandObject) -> None:
+    user = message.from_user
+    is_admin = user.id in settings.admin_user_ids
+    db.upsert_user(user.id, user.username, is_admin)
+
+    if not is_admin:
+        await message.reply("Sorry, only admins can delete documents.")
+        return
+
+    args = (command.args or "").strip()
+    if not args.isdigit():
+        await message.reply("Usage: /delete <document id> — see /documents for ids.")
+        return
+    document_id = int(args)
+
+    doc = db.get_document(document_id)
+    if doc is None:
+        await message.reply(f"No document with id {document_id}.")
+        return
+
+    try:
+        qdrant_store.delete_document(document_id)
+        db.delete_document(document_id)
+    except Exception:
+        logger.exception("Failed to delete document_id=%s", document_id)
+        await message.reply("Sorry, something went wrong deleting that document — please try again.")
+        return
+
+    if os.path.exists(doc["storage_path"]):
+        try:
+            os.remove(doc["storage_path"])
+        except OSError:
+            logger.exception("Failed to remove stored file for document_id=%s", document_id)
+
+    await message.reply(f'Deleted "{doc["filename"]}" (#{document_id}).')
 
 
 @router.message(F.document)
@@ -149,7 +259,7 @@ async def resolve_webhook_url() -> str:
 
 async def on_startup(bot: Bot) -> None:
     os.makedirs(settings.upload_dir, exist_ok=True)
-    ensure_collection()
+    qdrant_store.ensure_collection()
     webhook_url = await resolve_webhook_url()
     await bot.set_webhook(webhook_url, secret_token=settings.webhook_secret_token)
     logger.info("Webhook registered at %s", webhook_url)

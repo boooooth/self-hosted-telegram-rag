@@ -66,6 +66,17 @@ only the `command:` differs per service in `docker-compose.yml`.
 4. Message your bot on Telegram. Upload a text-based PDF as an admin to index
    it; ask questions as anyone.
 
+## Commands
+
+- `/start` — onboarding message; shows admin commands too if you're one.
+- `/documents [page]` — admin only. Lists uploaded documents (newest first,
+  20 per page) with id, filename, status, and chunk count.
+- `/delete <id>` — admin only. Removes a document (Qdrant vectors, Postgres
+  row + its chunks, and the stored file) by the id shown in `/documents`.
+
+Anyone can also just send a plain-text question, or (admins only) upload a
+PDF/DOCX/TXT/MD file to index it.
+
 ## Tunnel: quick tunnel by default, no Cloudflare account needed
 
 With `WEBHOOK_URL` left empty, `cloudflared` runs an ephemeral **quick

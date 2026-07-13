@@ -1,22 +1,28 @@
-"""Tests for app.db.insert_chunks's stale-row cleanup, using a mocked
-cursor -- no real Postgres needed. The rest of db.py is thin, directly
-parameterized SQL passthrough not worth mocking statement-by-statement.
+"""Tests for app.db's stale-chunk cleanup and document-management queries,
+using a mocked cursor -- no real Postgres needed. The rest of db.py is thin,
+directly parameterized SQL passthrough not worth mocking statement-by-statement.
 """
 from contextlib import contextmanager
 from unittest.mock import MagicMock
 
+import pytest
+
 import app.db as db
 
 
-def test_insert_chunks_upserts_then_deletes_rows_beyond_new_count(monkeypatch):
-    mock_cursor = MagicMock()
+@pytest.fixture
+def mock_cursor(monkeypatch):
+    cursor = MagicMock()
 
     @contextmanager
     def fake_cursor():
-        yield mock_cursor
+        yield cursor
 
     monkeypatch.setattr(db, "_cursor", fake_cursor)
+    return cursor
 
+
+def test_insert_chunks_upserts_then_deletes_rows_beyond_new_count(mock_cursor):
     db.insert_chunks(document_id=42, chunk_texts=["a", "b", "c"])
 
     assert mock_cursor.executemany.called
@@ -31,16 +37,43 @@ def test_insert_chunks_upserts_then_deletes_rows_beyond_new_count(monkeypatch):
     assert delete_params == (42, 3)
 
 
-def test_insert_chunks_with_empty_list_deletes_everything_for_the_document(monkeypatch):
-    mock_cursor = MagicMock()
-
-    @contextmanager
-    def fake_cursor():
-        yield mock_cursor
-
-    monkeypatch.setattr(db, "_cursor", fake_cursor)
-
+def test_insert_chunks_with_empty_list_deletes_everything_for_the_document(mock_cursor):
     db.insert_chunks(document_id=42, chunk_texts=[])
 
     delete_sql, delete_params = mock_cursor.execute.call_args[0]
     assert delete_params == (42, 0)
+
+
+def test_list_documents_passes_limit_and_offset_to_the_query(mock_cursor):
+    mock_cursor.fetchall.return_value = [{"id": 1, "filename": "a.txt"}]
+
+    result = db.list_documents(limit=20, offset=40)
+
+    assert result == [{"id": 1, "filename": "a.txt"}]
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "FROM documents" in sql
+    assert "LIMIT %s OFFSET %s" in sql
+    assert params == (20, 40)
+
+
+def test_list_documents_defaults_to_first_page(mock_cursor):
+    mock_cursor.fetchall.return_value = []
+
+    db.list_documents()
+
+    _, params = mock_cursor.execute.call_args[0]
+    assert params == (20, 0)
+
+
+def test_count_documents_returns_the_scalar_count(mock_cursor):
+    mock_cursor.fetchone.return_value = {"count": 7}
+
+    assert db.count_documents() == 7
+
+
+def test_delete_document_deletes_by_id(mock_cursor):
+    db.delete_document(document_id=99)
+
+    sql, params = mock_cursor.execute.call_args[0]
+    assert "DELETE FROM documents" in sql
+    assert params == (99,)
