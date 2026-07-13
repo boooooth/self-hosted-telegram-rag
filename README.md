@@ -143,4 +143,3 @@ a VPS with its own domain/reverse proxy):
   frequency — cheap insurance against abuse, and directly protects against API
   cost if you switch `LLM_MODEL` to a hosted provider, since reads are open
   to anyone.
-# test
