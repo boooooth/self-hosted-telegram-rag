@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS documents (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS documents_uploaded_by_idx ON documents (uploaded_by);
+
 CREATE TABLE IF NOT EXISTS chunks (
     id            SERIAL PRIMARY KEY,
     document_id   INTEGER NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
@@ -39,3 +41,5 @@ CREATE TABLE IF NOT EXISTS queries (
     answer               TEXT NOT NULL,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS queries_user_id_idx ON queries (user_id);
