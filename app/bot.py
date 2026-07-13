@@ -9,7 +9,7 @@ import time
 import httpx
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import ErrorEvent, Message
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, ErrorEvent, Message
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 from rq import Callback, Retry
@@ -22,17 +22,42 @@ from app.retrieval import hybrid_search, rerank
 
 DOCUMENTS_PAGE_SIZE = 20
 
+# Shown in Telegram's native "/" command popup. PUBLIC_COMMANDS is set as
+# the bot-wide default (every chat); ADMIN_COMMANDS is set per-admin-chat on
+# top of that (see set_admin_command_menu) so non-admins never see commands
+# they'd just get rejected from using.
+PUBLIC_COMMANDS = [BotCommand(command="start", description="What this bot does")]
+ADMIN_COMMANDS = PUBLIC_COMMANDS + [
+    BotCommand(command="documents", description="List indexed documents"),
+    BotCommand(command="delete", description="Remove a document by id"),
+]
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = Router()
 
 
+async def set_admin_command_menu(bot: Bot, chat_id: int) -> None:
+    """Telegram only accepts a per-chat command scope once that chat exists
+    from its side ("chat not found" otherwise) -- true once a user has sent
+    the bot at least one message. Called both at startup (best-effort, for
+    admins who've already messaged the bot before) and from handle_start
+    (guaranteed to work, since the chat obviously exists by then)."""
+    try:
+        await bot.set_my_commands(ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=chat_id))
+    except Exception:
+        logger.warning("Could not set admin command menu for chat %s yet", chat_id)
+
+
 @router.message(Command("start"))
-async def handle_start(message: Message) -> None:
+async def handle_start(message: Message, bot: Bot) -> None:
     user = message.from_user
     is_admin = user.id in settings.admin_user_ids
     db.upsert_user(user.id, user.username, is_admin)
+
+    if is_admin:
+        await set_admin_command_menu(bot, message.chat.id)
 
     lines = [
         "👋 I'm a question-answering bot over a shared document knowledge base.",
@@ -260,6 +285,11 @@ async def resolve_webhook_url() -> str:
 async def on_startup(bot: Bot) -> None:
     os.makedirs(settings.upload_dir, exist_ok=True)
     qdrant_store.ensure_collection()
+
+    await bot.set_my_commands(PUBLIC_COMMANDS, scope=BotCommandScopeDefault())
+    for admin_id in settings.admin_user_ids:
+        await set_admin_command_menu(bot, admin_id)
+
     webhook_url = await resolve_webhook_url()
     await bot.set_webhook(webhook_url, secret_token=settings.webhook_secret_token)
     logger.info("Webhook registered at %s", webhook_url)

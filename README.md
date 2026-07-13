@@ -142,6 +142,26 @@ a VPS with its own domain/reverse proxy):
   `app/bot.py` and `app/ingestion.py` would need to read/write from the
   object store instead of the filesystem).
 
+## Development
+
+Install dev dependencies (adds `pytest` on top of the runtime requirements
+in `requirements.txt` -- the production image only ever installs the latter,
+see `Dockerfile`):
+```
+pip install -r requirements-dev.txt
+```
+
+Run the test suite:
+```
+python -m pytest tests/ -v
+```
+(`python -m pytest`, not bare `pytest` -- the latter doesn't put the repo
+root on `sys.path`, so `import app.x` fails in every test file.)
+
+Every PR to `main` runs this same test suite plus a syntax/import check in
+CI (`.github/workflows/ci.yml`). `main` is branch-protected: changes go
+through a PR, and CI must pass before it can merge.
+
 ## Limitations
 
 - Supported upload formats: PDF, DOCX, TXT, MD. PDF ingestion is text-based
